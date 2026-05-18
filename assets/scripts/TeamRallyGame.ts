@@ -188,8 +188,8 @@ export class TeamRallyGame extends Component {
     private createLayers() {
         this.backgroundLayer = this.makeLayer('Background');
         this.gameLayer = this.makeLayer('Game');
-        this.uiLayer = this.makeLayer('UI');
         this.hintLayer = this.makeLayer('Hint');
+        this.uiLayer = this.makeLayer('UI');
         this.ctaLayer = this.makeLayer('CTA');
     }
 
@@ -242,7 +242,7 @@ export class TeamRallyGame extends Component {
         this.addMessage(this.tr('stack12'), this.stageHeight * 0.3, 30);
         await this.wait(0.8);
         let tornadoPlayed = false;
-        this.showHand(['red5', 'yellow4', 'blue3', 'green6', 'red7', 'tornado'], async (cardName, cardNode) => {
+        const cards = this.showHand(['red5', 'yellow4', 'blue3', 'green6', 'red7', 'tornado'], async (cardName, cardNode) => {
             if (tornadoPlayed) {
                 return;
             }
@@ -261,7 +261,8 @@ export class TeamRallyGame extends Component {
             await this.showCTA();
         });
         this.addMessage(this.tr('playTornado'), -this.stageHeight * 0.32, 30);
-        this.setHintAt(new Vec3(0, -this.stageHeight * 0.31, 0), true);
+        const tornado = cards.find((item) => item.name === 'tornado')?.node;
+        this.setHintAt((tornado?.position ?? new Vec3(0, -this.stageHeight * 0.39, 0)).clone().add(new Vec3(0, 90, 0)), true);
     }
 
     private async startGrand(teammate: Teammate) {
@@ -628,27 +629,50 @@ export class TeamRallyGame extends Component {
         this.hintTarget = position;
         this.hintEnabled = enabled;
         this.idleSeconds = 0;
+        const hintLayout = this.getHintLayout(position);
         if (!this.handHint) {
             const requestId = ++this.hintRequestId;
             this.addSprite('teamrally/fx/hand_hint', this.hintLayer, {
                 name: 'HandHint',
-                x: position.x + 54,
-                y: position.y - 84,
-                width: 170,
+                x: hintLayout.position.x,
+                y: hintLayout.position.y,
+                width: hintLayout.width,
             }).then((node) => {
                 if (requestId !== this.hintRequestId || !this.hintEnabled) {
                     node.destroy();
                     return;
                 }
                 this.handHint = node;
-                node.position = new Vec3(this.hintTarget.x + 54, this.hintTarget.y - 84, 0);
+                this.applyHintLayout(node, this.hintTarget);
                 node.active = false;
                 tween(node).repeatForever(tween().by(0.55, { position: new Vec3(0, -18, 0) }).by(0.55, { position: new Vec3(0, 18, 0) })).start();
             });
         } else {
-            this.handHint.position = new Vec3(this.hintTarget.x + 54, this.hintTarget.y - 84, 0);
+            this.applyHintLayout(this.handHint, this.hintTarget);
             this.handHint.active = false;
         }
+    }
+
+    private getHintLayout(position: Vec3) {
+        const isLowerHint = position.y < -this.stageHeight * 0.16;
+        const offsetX = isLowerHint ? 78 : 54;
+        const offsetY = isLowerHint ? -148 : -84;
+        return {
+            position: new Vec3(position.x + offsetX, position.y + offsetY, 0),
+            width: isLowerHint ? 112 : 138,
+        };
+    }
+
+    private applyHintLayout(node: Node, target: Vec3) {
+        const layout = this.getHintLayout(target);
+        node.position = layout.position;
+        const transform = node.getComponent(UITransform);
+        if (!transform) {
+            return;
+        }
+        const size = transform.contentSize;
+        const ratio = size.width > 0 ? size.height / size.width : 1;
+        transform.setContentSize(layout.width, layout.width * ratio);
     }
 
     private resetIdle() {
