@@ -14,7 +14,6 @@ import {
     sys,
     tween,
     UITransform,
-    UIOpacity,
     Vec3,
     view,
 } from 'cc';
@@ -36,8 +35,8 @@ interface ImageRect {
     scale: number;
 }
 
-const DESIGN_CHOICE = { width: 1920, height: 1080 };
-const DESIGN_BOARD = { width: 1080, height: 1920 };
+const DESIGN_CHOICE = { width: 1280, height: 720 };
+const DESIGN_BOARD = { width: 1280, height: 720 };
 
 const COPY = {
     en: {
@@ -218,14 +217,10 @@ export class TeamRallyGame extends Component {
         this.clearAll();
         this.flowLocked = false;
         this.activeDesign = DESIGN_CHOICE;
-        await this.setBackground('teamrally/screens/choose_teammate', DESIGN_CHOICE, 'contain');
-        await this.addLogo();
-        this.addLegal();
-        this.addMessage(this.tr('pickBrother'), -this.stageHeight * 0.38, 30);
-        this.addChoiceHotspot('Grandma', 360, 770, 520, 360, () => this.startGrand('grandma'));
-        this.addChoiceHotspot('Grandpa', 960, 760, 560, 430, () => this.startGrand('grandpa'));
-        this.addChoiceHotspot('Brother', 1580, 760, 440, 360, () => this.startBrother());
-        this.setHintAt(this.fromDesign(1580, 845), true);
+        await this.setBackground('teamrally/screens/target_choose', DESIGN_CHOICE, 'cover');
+        this.addTargetHotspot('Bestie', 210, 355, 300, 400, () => this.startBrother());
+        this.addTargetHotspot('Boss', 640, 355, 300, 400, () => this.startBrother());
+        this.addTargetHotspot('Brother', 1040, 350, 330, 420, () => this.startBrother());
     }
 
     private async startBrother() {
@@ -236,33 +231,29 @@ export class TeamRallyGame extends Component {
         this.playAudio('button_addfriend');
         this.hintEnabled = false;
         await this.showBoard();
-        this.addMessage(this.tr('brotherUno'), this.stageHeight * 0.28, 38);
-        await this.wait(0.65);
-        await this.showDraw4Stack();
-        this.addMessage(this.tr('stack12'), this.stageHeight * 0.3, 30);
-        await this.wait(0.8);
-        let tornadoPlayed = false;
-        const cards = this.showHand(['red5', 'yellow4', 'blue3', 'green6', 'red7', 'tornado'], async (cardName, cardNode) => {
-            if (tornadoPlayed) {
+        let draw4Played = false;
+        this.addTargetHotspot('PlayDraw4', 320, 600, 520, 210, async () => {
+            if (draw4Played) {
                 return;
             }
-            if (cardName !== 'tornado') {
-                this.flashNode(cardNode);
-                this.addMessage(this.tr('playTornado'), -this.stageHeight * 0.32, 30);
-                return;
-            }
-            tornadoPlayed = true;
-            this.hintEnabled = false;
-            this.playAudio('entry_player');
-            await this.playTornadoClear();
-            await this.teammateSharesCards();
-            this.addMessage(this.tr('brotherFinal'), this.stageHeight * 0.3, 30);
-            await this.wait(1.1);
-            await this.showCTA();
+            draw4Played = true;
+            await this.playTargetDraw4();
         });
-        this.addMessage(this.tr('playTornado'), -this.stageHeight * 0.32, 30);
-        const tornado = cards.find((item) => item.name === 'tornado')?.node;
-        this.setHintAt((tornado?.position ?? new Vec3(0, -this.stageHeight * 0.39, 0)).clone().add(new Vec3(0, 90, 0)), true);
+        this.setHintAt(this.fromDesign(360, 545), true);
+    }
+
+    private async playTargetDraw4() {
+        this.hintEnabled = false;
+        this.hintRequestId++;
+        this.clearNode(this.uiLayer);
+        this.clearNode(this.hintLayer);
+        this.handHint = undefined;
+        this.playAudio('entry_player');
+        await this.setBackground('teamrally/screens/target_board_draw4', DESIGN_BOARD, 'cover');
+        await this.wait(0.8);
+        await this.setBackground('teamrally/screens/target_board_after', DESIGN_BOARD, 'cover');
+        await this.wait(1.0);
+        await this.showCTA();
     }
 
     private async startGrand(teammate: Teammate) {
@@ -319,9 +310,7 @@ export class TeamRallyGame extends Component {
         this.stopSequence();
         this.clearAll();
         this.activeDesign = DESIGN_BOARD;
-        await this.setBackground('teamrally/screens/board_vertical', DESIGN_BOARD, 'cover');
-        await this.addLogo();
-        this.addLegal();
+        await this.setBackground('teamrally/screens/target_board_start', DESIGN_BOARD, 'cover');
     }
 
     private async showDraw4Stack() {
@@ -439,6 +428,10 @@ export class TeamRallyGame extends Component {
         node.on(Node.EventType.TOUCH_END, cb, this);
     }
 
+    private addTargetHotspot(label: string, x: number, y: number, width: number, height: number, cb: () => void) {
+        this.addChoiceHotspot(label, x, y, width, height, cb);
+    }
+
     private addMessage(text: string, y: number, fontSize: number) {
         let node = this.uiLayer.getChildByName('Message');
         if (!node) {
@@ -490,27 +483,21 @@ export class TeamRallyGame extends Component {
 
     private async showCTA() {
         this.hintEnabled = false;
+        this.hintRequestId++;
+        this.handHint = undefined;
+        this.clearNode(this.gameLayer);
+        this.clearNode(this.uiLayer);
+        this.clearNode(this.hintLayer);
         this.clearNode(this.ctaLayer);
-        const shade = await this.addSprite('teamrally/screens/card_effects', this.ctaLayer, {
-            name: 'CTABg',
-            x: 0,
-            y: 0,
-            height: this.stageHeight,
-        });
-        const opacity = shade.addComponent(UIOpacity);
-        opacity.opacity = 0;
-        tween(opacity).to(0.25, { opacity: 255 }).start();
+        await this.setBackground('teamrally/screens/target_lose', DESIGN_BOARD, 'cover');
+        this.addTargetHotspot('LoseCTA', 650, 535, 260, 260, () => this.showStoreFrame());
+    }
 
-        const title = this.makeLabel(this.tr('ctaTitle'), 54, new Color(255, 255, 255, 255), 0, 70);
-        title.parent = this.ctaLayer;
-        const body = this.makeLabel(this.tr('ctaBody'), 28, new Color(255, 255, 255, 255), 0, 8);
-        body.parent = this.ctaLayer;
-        const button = this.makeLabel(this.tr('playNow'), 36, new Color(255, 230, 49, 255), 0, -74);
-        button.parent = this.ctaLayer;
-        this.bindTap(button, () => {
-            this.openStore();
-        });
-        this.addLegal();
+    private async showStoreFrame() {
+        this.clearNode(this.uiLayer);
+        this.clearNode(this.ctaLayer);
+        await this.setBackground('teamrally/screens/target_store', DESIGN_BOARD, 'cover');
+        this.addTargetHotspot('StoreCTA', 720, 640, 430, 120, () => this.openStore());
     }
 
     private async setBackground(path: string, design: { width: number; height: number }, mode: FitMode) {
@@ -756,9 +743,9 @@ export class TeamRallyGame extends Component {
 
     private openStore() {
         if (sys.os === sys.OS.IOS || sys.os === sys.OS.OSX) {
-            sys.openURL('https://apps.apple.com/us/search?term=uno%20wonder');
+            sys.openURL('https://apps.apple.com/us/search?term=uno%20mobile');
             return;
         }
-        sys.openURL('https://play.google.com/store/search?q=uno%20wonder&c=apps&hl=en_US&gl=US');
+        sys.openURL('https://play.google.com/store/search?q=uno%20mobile&c=apps&hl=en_US&gl=US');
     }
 }
