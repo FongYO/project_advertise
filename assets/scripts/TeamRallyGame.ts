@@ -389,8 +389,9 @@ export class TeamRallyGame extends Component {
         const deck = new Vec3(-this.stageWidth * 0.32, this.stageHeight * 0.04, 0);
         const faces = ['green6', 'yellow8', 'blue3', 'red7', 'yellow4', 'red5', 'blue_plus2', 'green_plus2', 'draw4', 'wild'];
         for (let i = 0; i < count; i++) {
-            const card = this.addCard(faces[(this.playerHandNodes.length + i) % faces.length], deck.clone(), 58, false);
+            const card = this.addCard(faces[(this.playerHandNodes.length + i) % faces.length], deck.clone(), this.playerCardWidth(), false);
             card.angle = -18;
+            card.scale = new Vec3(0.82, 0.82, 1);
             this.playerHandNodes.push(card);
             this.layoutPlayerHand();
             this.playAudio('draw4');
@@ -464,18 +465,23 @@ export class TeamRallyGame extends Component {
         const active = this.playerHandNodes.filter((node) => node.isValid);
         this.playerHandNodes = active;
         const count = active.length;
-        const width = Math.min(70, Math.max(44, this.stageWidth / (count + 3.5)));
-        const spacing = Math.min(width * 0.68, this.stageWidth / (count + 1.5));
-        const y = -this.stageHeight * 0.39;
+        const width = this.playerCardWidth();
+        const maxSpread = Math.min(this.stageWidth * 0.9, 760);
+        const spacing = count <= 1 ? 0 : Math.min(width * 0.52, maxSpread / (count - 1));
+        const y = -this.stageHeight * 0.38;
         active.forEach((card, index) => {
             const x = (index - (count - 1) / 2) * spacing;
             const transform = card.getComponent(UITransform);
             if (transform) {
                 transform.setContentSize(width, width * 1.42);
             }
-            card.angle = (index - (count - 1) / 2) * 2.4;
+            card.angle = (index - (count - 1) / 2) * 1.4;
             tween(card).to(0.22, { position: new Vec3(x, y, 0), scale: Vec3.ONE }, { easing: easing.quadOut }).start();
         });
+    }
+
+    private playerCardWidth() {
+        return Math.min(92, Math.max(70, this.stageWidth * 0.105));
     }
 
     private async startGrand(teammate: Teammate) {
