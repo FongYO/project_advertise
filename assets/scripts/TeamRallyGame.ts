@@ -153,6 +153,8 @@ export class TeamRallyGame extends Component {
     private selectedGiveCards = new Set<Node>();
     private selectedGiveCardNames = new Set<string>();
     private cached = new Map<string, LoadedSprite>();
+    private opponentNode?: Node;
+    private opponentFan: Node[] = [];
     private sequenceTimer?: number;
 
     onLoad() {
@@ -223,8 +225,8 @@ export class TeamRallyGame extends Component {
         await this.addLogo();
         this.addLegal();
         this.addMessage(this.tr('pickBrother'), this.stageHeight * 0.36, 42);
-        this.addChoiceHotspot('Grandma', 360, 770, 520, 360, () => this.startGrand('grandma'));
-        this.addChoiceHotspot('Grandpa', 960, 760, 560, 430, () => this.startGrand('grandpa'));
+        this.addChoiceHotspot('Grandma', 360, 770, 520, 360, () => this.startBrother());
+        this.addChoiceHotspot('Grandpa', 960, 760, 560, 430, () => this.startBrother());
         this.addChoiceHotspot('Brother', 1580, 760, 440, 360, () => this.startBrother());
         this.setHintAt(this.fromDesign(1580, 845), true);
     }
@@ -237,37 +239,114 @@ export class TeamRallyGame extends Component {
         this.playAudio('button_addfriend');
         this.hintEnabled = false;
         await this.showBoard();
-        this.addMessage(this.tr('brotherUno'), this.stageHeight * 0.28, 38);
-        await this.wait(0.65);
-        await this.showDraw4Stack();
-        this.addMessage(this.tr('stack12'), this.stageHeight * 0.3, 30);
-        await this.wait(0.8);
-        let tornadoPlayed = false;
-        const cards = this.showHand(['red5', 'yellow4', 'blue3', 'green6', 'red7', 'tornado'], async (cardName, cardNode) => {
-            if (tornadoPlayed) {
+        await this.addBrotherTargetBoard();
+        this.addMessage('Play +4 on Brother!', -this.stageHeight * 0.32, 30);
+        let draw4Played = false;
+        const cards = this.showHand(['green6', 'yellow4', 'blue3', 'red5', 'blue_plus2', 'draw4', 'green6'], async (cardName, cardNode) => {
+            if (draw4Played) {
                 return;
             }
-            if (cardName !== 'tornado') {
+            if (cardName !== 'draw4') {
                 this.shakeNode(cardNode);
-                this.addMessage(this.tr('playTornado'), -this.stageHeight * 0.32, 30);
+                this.addMessage('Use the +4 card!', -this.stageHeight * 0.32, 30);
                 return;
             }
-            tornadoPlayed = true;
+            draw4Played = true;
             this.hintEnabled = false;
             this.playAudio('entry_player');
-            await this.flyCardToCenter(cardNode);
-            await this.playTornadoClear();
-            if (cardNode.isValid) {
-                cardNode.destroy();
-            }
-            await this.teammateSharesCards();
-            this.addMessage(this.tr('brotherFinal'), this.stageHeight * 0.3, 30);
-            await this.wait(1.1);
+            await this.playDraw4Attack(cardNode);
             await this.showCTA();
         });
-        this.addMessage(this.tr('playTornado'), -this.stageHeight * 0.32, 30);
-        const tornado = cards.find((item) => item.name === 'tornado')?.node;
-        this.setHintAt((tornado?.position ?? new Vec3(0, -this.stageHeight * 0.39, 0)).clone().add(new Vec3(0, 90, 0)), true);
+        const draw4 = cards.find((item) => item.name === 'draw4')?.node;
+        if (draw4) {
+            this.setHintAt(draw4.position.clone().add(new Vec3(0, 90, 0)), true);
+        }
+    }
+
+    private async addBrotherTargetBoard() {
+        const opponent = await this.addSprite('teamrally/avatars/brother_face', this.gameLayer, {
+            name: 'BrotherFace',
+            x: this.stageWidth * 0.34,
+            y: this.stageHeight * 0.14,
+            width: 130,
+        });
+        opponent.scale = new Vec3(0.25, 0.25, 1);
+        this.opponentNode = opponent;
+        tween(opponent)
+            .to(0.34, { scale: Vec3.ONE }, { easing: easing.backOut })
+            .call(() => {
+                tween(opponent).repeatForever(tween().by(0.7, { position: new Vec3(0, 8, 0) }).by(0.7, { position: new Vec3(0, -8, 0) })).start();
+            })
+            .start();
+
+        const name = this.makeLabel('Brother', 24, new Color(255, 255, 255, 255), this.stageWidth * 0.34, this.stageHeight * 0.02);
+        name.parent = this.gameLayer;
+
+        this.addOpponentFan(new Vec3(this.stageWidth * 0.18, this.stageHeight * 0.2, 0), 11, 58);
+        this.addDeckPile(new Vec3(-this.stageWidth * 0.32, this.stageHeight * 0.04, 0));
+    }
+
+    private addOpponentFan(center: Vec3, count: number, width: number) {
+        this.opponentFan = [];
+        for (let i = 0; i < count; i++) {
+            const t = count <= 1 ? 0 : i / (count - 1);
+            const angle = -36 + t * 72;
+            const x = center.x + (t - 0.5) * 150;
+            const y = center.y - Math.abs(t - 0.5) * 44;
+            const card = this.addCard('back', new Vec3(x, y - 110, 0), width, false);
+            card.angle = angle;
+            card.scale = new Vec3(0.2, 0.2, 1);
+            this.opponentFan.push(card);
+            tween(card)
+                .delay(i * 0.035)
+                .to(0.26, { position: new Vec3(x, y, 0), scale: Vec3.ONE }, { easing: easing.backOut })
+                .start();
+        }
+    }
+
+    private addDeckPile(position: Vec3) {
+        for (let i = 0; i < 3; i++) {
+            const card = this.addCard('back', position.clone().add(new Vec3(i * 5, i * 4, 0)), 70, false);
+            card.angle = -18;
+        }
+    }
+
+    private async playDraw4Attack(cardNode: Node) {
+        this.hintRequestId++;
+        this.clearNode(this.hintLayer);
+        this.handHint = undefined;
+        this.addMessage('DRAW 4!', this.stageHeight * 0.3, 42);
+        await this.flyCardToTarget(cardNode, new Vec3(this.stageWidth * 0.07, this.stageHeight * 0.04, 0), 1.28);
+        await this.playFxSequence('flash', new Vec3(this.stageWidth * 0.1, this.stageHeight * 0.04, 0), 0.035, 0.78);
+        this.popText('+4', new Vec3(this.stageWidth * 0.27, this.stageHeight * 0.15, 0), 58, new Color(80, 182, 255, 255));
+        if (this.opponentNode) {
+            this.shakeNode(this.opponentNode, false);
+        }
+        await this.dealPenaltyCards();
+        this.addMessage('Oops.. You lose!', this.stageHeight * 0.31, 34);
+        await this.wait(0.75);
+    }
+
+    private async dealPenaltyCards() {
+        const deck = new Vec3(-this.stageWidth * 0.32, this.stageHeight * 0.04, 0);
+        const target = new Vec3(this.stageWidth * 0.24, this.stageHeight * 0.18, 0);
+        for (let i = 0; i < 4; i++) {
+            const card = this.addCard('back', deck.clone(), 58, false);
+            card.angle = -18;
+            tween(card)
+                .to(0.34, {
+                    position: target.clone().add(new Vec3(i * 16, -i * 4, 0)),
+                    scale: new Vec3(0.92, 0.92, 1),
+                }, { easing: easing.quadOut })
+                .call(() => {
+                    card.angle = 18 + i * 8;
+                    this.opponentFan.push(card);
+                })
+                .start();
+            this.playAudio('draw4');
+            await this.wait(0.13);
+        }
+        await this.wait(0.38);
     }
 
     private async startGrand(teammate: Teammate) {
@@ -522,12 +601,13 @@ export class TeamRallyGame extends Component {
         opacity.opacity = 0;
         tween(opacity).to(0.25, { opacity: 255 }).start();
 
-        const title = this.makeLabel(this.tr('ctaTitle'), 54, new Color(255, 255, 255, 255), 0, 70);
+        const title = this.makeLabel('Oops.. You lose!', 46, new Color(255, 255, 255, 255), 0, 84);
         title.parent = this.ctaLayer;
-        const body = this.makeLabel(this.tr('ctaBody'), 28, new Color(255, 255, 255, 255), 0, 8);
+        const body = this.makeLabel('Try the +4 comeback in UNO Mobile.', 26, new Color(255, 255, 255, 255), 0, 18);
         body.parent = this.ctaLayer;
-        const button = this.makeLabel(this.tr('playNow'), 36, new Color(255, 230, 49, 255), 0, -74);
+        const button = this.makeLabel(this.tr('playNow'), 38, new Color(255, 230, 49, 255), 0, -78);
         button.parent = this.ctaLayer;
+        tween(button).repeatForever(tween().to(0.45, { scale: new Vec3(1.08, 1.08, 1) }).to(0.45, { scale: Vec3.ONE })).start();
         this.bindTap(button, () => {
             this.openStore();
         });
@@ -714,7 +794,7 @@ export class TeamRallyGame extends Component {
         tween(node).to(0.08, { scale: new Vec3(1.18, 1.18, 1) }).to(0.12, { scale: Vec3.ONE }).start();
     }
 
-    private shakeNode(node: Node) {
+    private shakeNode(node: Node, restartPulse = node.name.startsWith('HandCard')) {
         const origin = node.position.clone();
         Tween.stopAllByTarget(node);
         tween(node)
@@ -722,19 +802,27 @@ export class TeamRallyGame extends Component {
             .to(0.05, { position: origin.clone().add(new Vec3(14, 0, 0)) })
             .to(0.05, { position: origin.clone().add(new Vec3(-10, 0, 0)) })
             .to(0.08, { position: origin, scale: Vec3.ONE })
-            .call(() => this.startCardPulse(node))
+            .call(() => {
+                if (restartPulse) {
+                    this.startCardPulse(node);
+                }
+            })
             .start();
     }
 
     private flyCardToCenter(node: Node) {
+        return this.flyCardToTarget(node, new Vec3(0, 0, 0), 1.35);
+    }
+
+    private flyCardToTarget(node: Node, target: Vec3, scale: number) {
         Tween.stopAllByTarget(node);
         node.parent = this.hintLayer;
         return new Promise<void>((resolve) => {
             tween(node)
                 .to(0.22, { scale: new Vec3(1.22, 1.22, 1) }, { easing: easing.backOut })
-                .to(0.36, { position: new Vec3(0, 0, 0), scale: new Vec3(1.35, 1.35, 1) }, { easing: easing.quadOut })
+                .to(0.36, { position: target, scale: new Vec3(scale, scale, 1) }, { easing: easing.quadOut })
                 .call(() => {
-                    this.popText('BOOM!', new Vec3(0, this.stageHeight * 0.2, 0), 48, new Color(255, 230, 49, 255));
+                    this.popText('BOOM!', target.clone().add(new Vec3(0, this.stageHeight * 0.16, 0)), 48, new Color(255, 230, 49, 255));
                     resolve();
                 })
                 .start();
@@ -825,9 +913,9 @@ export class TeamRallyGame extends Component {
 
     private openStore() {
         if (sys.os === sys.OS.IOS || sys.os === sys.OS.OSX) {
-            sys.openURL('https://apps.apple.com/us/search?term=uno%20wonder');
+            sys.openURL('https://apps.apple.com/us/search?term=uno%20mobile');
             return;
         }
-        sys.openURL('https://play.google.com/store/search?q=uno%20wonder&c=apps&hl=en_US&gl=US');
+        sys.openURL('https://play.google.com/store/search?q=uno%20mobile&c=apps&hl=en_US&gl=US');
     }
 }
