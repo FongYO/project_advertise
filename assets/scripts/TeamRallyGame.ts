@@ -155,6 +155,7 @@ export class TeamRallyGame extends Component {
     private cached = new Map<string, LoadedSprite>();
     private opponentNode?: Node;
     private opponentFan: Node[] = [];
+    private playerHandNodes: Node[] = [];
     private sequenceTimer?: number;
 
     onLoad() {
@@ -257,6 +258,7 @@ export class TeamRallyGame extends Component {
             await this.playDraw4Attack(cardNode);
             await this.showCTA();
         });
+        this.playerHandNodes = cards.map((item) => item.node);
         const draw4 = cards.find((item) => item.name === 'draw4')?.node;
         if (draw4) {
             this.setHintAt(draw4.position.clone().add(new Vec3(0, 90, 0)), true);
@@ -315,22 +317,28 @@ export class TeamRallyGame extends Component {
         this.hintRequestId++;
         this.clearNode(this.hintLayer);
         this.handHint = undefined;
-        this.addMessage('DRAW 4!', this.stageHeight * 0.3, 42);
-        await this.flyCardToTarget(cardNode, new Vec3(this.stageWidth * 0.07, this.stageHeight * 0.04, 0), 1.28);
-        await this.playFxSequence('flash', new Vec3(this.stageWidth * 0.1, this.stageHeight * 0.04, 0), 0.035, 0.78);
-        this.popText('+4', new Vec3(this.stageWidth * 0.27, this.stageHeight * 0.15, 0), 58, new Color(80, 182, 255, 255));
+        this.playerHandNodes = this.playerHandNodes.filter((node) => node !== cardNode && node.isValid);
+        this.layoutPlayerHand();
+        this.addMessage('Give Brother +4!', this.stageHeight * 0.3, 38);
+        await this.flyCardToTarget(cardNode, new Vec3(this.stageWidth * 0.23, this.stageHeight * 0.18, 0), 1.1, '+4');
+        if (cardNode.isValid) {
+            cardNode.destroy();
+        }
+        await this.dealCardsToBrother(4);
         if (this.opponentNode) {
             this.shakeNode(this.opponentNode, false);
         }
-        await this.dealPenaltyCards();
-        this.addMessage('Oops.. You lose!', this.stageHeight * 0.31, 34);
+        this.addMessage('Brother starts a combo!', this.stageHeight * 0.3, 34);
+        await this.wait(0.45);
+        await this.playBrotherCombo();
+        await this.playBrotherFinalCard();
         await this.wait(0.75);
     }
 
-    private async dealPenaltyCards() {
+    private async dealCardsToBrother(count: number) {
         const deck = new Vec3(-this.stageWidth * 0.32, this.stageHeight * 0.04, 0);
         const target = new Vec3(this.stageWidth * 0.24, this.stageHeight * 0.18, 0);
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < count; i++) {
             const card = this.addCard('back', deck.clone(), 58, false);
             card.angle = -18;
             tween(card)
@@ -346,7 +354,120 @@ export class TeamRallyGame extends Component {
             this.playAudio('draw4');
             await this.wait(0.13);
         }
+        this.layoutOpponentFan();
         await this.wait(0.38);
+    }
+
+    private async playBrotherCombo() {
+        const combo = [
+            { card: 'blue_plus2', label: '+2', draw: 2 },
+            { card: 'draw4', label: '+4', draw: 4 },
+            { card: 'green_plus2', label: '+2', draw: 2 },
+            { card: 'wild_all', label: '+4', draw: 4 },
+        ];
+        for (const step of combo) {
+            await this.playBrotherAction(step.card, step.label, step.draw);
+        }
+    }
+
+    private async playBrotherAction(cardName: string, label: string, drawCount: number) {
+        const card = this.takeOpponentCard();
+        await this.setCardFace(card, cardName);
+        this.addMessage(`Brother plays ${label}!`, this.stageHeight * 0.3, 34);
+        await this.flyCardToTarget(card, new Vec3(this.stageWidth * 0.03, this.stageHeight * 0.05, 0), 1.08, label);
+        await this.playFxSequence(label === '+4' ? 'flash' : 'energy', new Vec3(this.stageWidth * 0.05, this.stageHeight * 0.04, 0), 0.035, 0.65);
+        await this.dealCardsToPlayer(drawCount);
+        this.layoutOpponentFan();
+        await this.wait(0.16);
+    }
+
+    private async dealCardsToPlayer(count: number) {
+        const deck = new Vec3(-this.stageWidth * 0.32, this.stageHeight * 0.04, 0);
+        for (let i = 0; i < count; i++) {
+            const card = this.addCard('back', deck.clone(), 58, false);
+            card.angle = -18;
+            this.playerHandNodes.push(card);
+            this.layoutPlayerHand();
+            this.playAudio('draw4');
+            await this.wait(0.09);
+        }
+        this.popText(`Your hand +${count}`, new Vec3(0, -this.stageHeight * 0.18, 0), 36, new Color(255, 230, 49, 255));
+        await this.wait(0.2);
+    }
+
+    private async playBrotherFinalCard() {
+        await this.drainOpponentHandToOne();
+        const finalCard = this.takeOpponentCard();
+        await this.setCardFace(finalCard, 'tornado');
+        this.addMessage('Brother has one card left...', this.stageHeight * 0.3, 32);
+        await this.wait(0.35);
+        await this.flyCardToTarget(finalCard, new Vec3(0, 0, 0), 1.28, 'BOOM!');
+        await this.playFxSequence('energy', new Vec3(0, 0, 0), 0.04, 1.25);
+        if (finalCard.isValid) {
+            finalCard.destroy();
+        }
+        this.addMessage('BOOM, You lose!', this.stageHeight * 0.3, 40);
+    }
+
+    private async drainOpponentHandToOne() {
+        this.addMessage('Brother empties his hand!', this.stageHeight * 0.3, 32);
+        while (this.opponentFan.filter((node) => node.isValid).length > 1) {
+            const card = this.takeOpponentCard();
+            Tween.stopAllByTarget(card);
+            tween(card)
+                .to(0.12, { position: new Vec3(this.stageWidth * 0.03, this.stageHeight * 0.05, 0), scale: new Vec3(0.28, 0.28, 1) }, { easing: easing.quadIn })
+                .call(() => card.destroy())
+                .start();
+            await this.wait(0.045);
+        }
+        this.layoutOpponentFan();
+        await this.wait(0.2);
+    }
+
+    private takeOpponentCard() {
+        while (this.opponentFan.length > 0) {
+            const card = this.opponentFan.pop();
+            if (card?.isValid) {
+                Tween.stopAllByTarget(card);
+                card.parent = this.hintLayer;
+                card.angle = 0;
+                return card;
+            }
+        }
+        return this.addCard('back', new Vec3(this.stageWidth * 0.22, this.stageHeight * 0.18, 0), 58, false);
+    }
+
+    private layoutOpponentFan() {
+        const active = this.opponentFan.filter((node) => node.isValid);
+        this.opponentFan = active;
+        const center = new Vec3(this.stageWidth * 0.18, this.stageHeight * 0.2, 0);
+        const count = active.length;
+        active.forEach((card, index) => {
+            const t = count <= 1 ? 0.5 : index / (count - 1);
+            const angle = -42 + t * 84;
+            const x = center.x + (t - 0.5) * Math.min(210, 14 * count);
+            const y = center.y - Math.abs(t - 0.5) * 48;
+            card.angle = angle;
+            tween(card).to(0.18, { position: new Vec3(x, y, 0), scale: Vec3.ONE }, { easing: easing.quadOut }).start();
+        });
+    }
+
+    private layoutPlayerHand() {
+        const active = this.playerHandNodes.filter((node) => node.isValid);
+        this.playerHandNodes = active;
+        const count = active.length;
+        const width = Math.min(70, Math.max(44, this.stageWidth / (count + 3.5)));
+        const spacing = Math.min(width * 0.68, this.stageWidth / (count + 1.5));
+        const y = -this.stageHeight * 0.39;
+        active.forEach((card, index) => {
+            const x = (index - (count - 1) / 2) * spacing;
+            const transform = card.getComponent(UITransform);
+            if (transform) {
+                transform.setContentSize(width, width * 1.42);
+            }
+            card.angle = (index - (count - 1) / 2) * 2.4;
+            tween(card).to(0.22, { position: new Vec3(x, y, 0), scale: Vec3.ONE }, { easing: easing.quadOut }).start();
+        });
     }
 
     private async startGrand(teammate: Teammate) {
@@ -601,7 +722,7 @@ export class TeamRallyGame extends Component {
         opacity.opacity = 0;
         tween(opacity).to(0.25, { opacity: 255 }).start();
 
-        const title = this.makeLabel('Oops.. You lose!', 46, new Color(255, 255, 255, 255), 0, 84);
+        const title = this.makeLabel('BOOM, You lose!', 46, new Color(255, 255, 255, 255), 0, 84);
         title.parent = this.ctaLayer;
         const body = this.makeLabel('Try the +4 comeback in UNO Mobile.', 26, new Color(255, 255, 255, 255), 0, 18);
         body.parent = this.ctaLayer;
@@ -726,6 +847,15 @@ export class TeamRallyGame extends Component {
         });
     }
 
+    private async setCardFace(node: Node, name: string) {
+        const sprite = node.getComponent(Sprite);
+        if (!sprite) {
+            return;
+        }
+        const loaded = await this.loadSprite(`teamrally/cards_normalized/${name}`);
+        sprite.spriteFrame = loaded.frame;
+    }
+
     private bindTap(node: Node, cb: () => void) {
         if (!node.getComponent(Button)) {
             node.addComponent(Button);
@@ -811,10 +941,10 @@ export class TeamRallyGame extends Component {
     }
 
     private flyCardToCenter(node: Node) {
-        return this.flyCardToTarget(node, new Vec3(0, 0, 0), 1.35);
+        return this.flyCardToTarget(node, new Vec3(0, 0, 0), 1.35, 'BOOM!');
     }
 
-    private flyCardToTarget(node: Node, target: Vec3, scale: number) {
+    private flyCardToTarget(node: Node, target: Vec3, scale: number, effectText?: string) {
         Tween.stopAllByTarget(node);
         node.parent = this.hintLayer;
         return new Promise<void>((resolve) => {
@@ -822,7 +952,9 @@ export class TeamRallyGame extends Component {
                 .to(0.22, { scale: new Vec3(1.22, 1.22, 1) }, { easing: easing.backOut })
                 .to(0.36, { position: target, scale: new Vec3(scale, scale, 1) }, { easing: easing.quadOut })
                 .call(() => {
-                    this.popText('BOOM!', target.clone().add(new Vec3(0, this.stageHeight * 0.16, 0)), 48, new Color(255, 230, 49, 255));
+                    if (effectText) {
+                        this.popText(effectText, target.clone().add(new Vec3(0, this.stageHeight * 0.16, 0)), 48, new Color(255, 230, 49, 255));
+                    }
                     resolve();
                 })
                 .start();
